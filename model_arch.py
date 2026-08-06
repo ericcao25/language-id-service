@@ -1,10 +1,3 @@
-"""
-Model architecture, copied from train.py.
-
-This must match the training script exactly — the checkpoints are raw
-state_dicts, not HuggingFace save_pretrained() output, so the service has to
-reconstruct this exact class before calling load_state_dict().
-"""
 import torch
 import torch.nn as nn
 from transformers import Wav2Vec2PreTrainedModel, Wav2Vec2Model

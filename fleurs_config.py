@@ -1,8 +1,3 @@
-"""
-FLEURS region -> language config mapping.
-Copied from build_configs.py so the inference service can reconstruct the
-exact label2id/id2label ordering used at training time in train.py.
-"""
 from collections import OrderedDict
 
 # FLEURS dataset copied from https://huggingface.co/datasets/google/fleurs/blob/streaming/fleurs.py
