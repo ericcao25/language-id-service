@@ -11,7 +11,7 @@ from transformers import AutoConfig, AutoFeatureExtractor
 from fleurs_config import FLEURS_GROUP_INFO
 from model_arch import Wav2Vec2ForSpeechClassification
 
-MODEL_ROOT = os.environ.get("MODEL_ROOT", "./models")
+MODEL_ROOT = os.environ.get("MODEL_ROOT", "./compressed_models")
 BASE_MODEL_NAME = "facebook/wav2vec2-xls-r-300m"
 SAMPLE_RATE = 16000
 REGIONS = list(FLEURS_GROUP_INFO.keys())
@@ -65,7 +65,8 @@ def load_model(region: str):
         config.pooling_mode = POOLING_MODE_OVERRIDES.get(region, DEFAULT_POOLING_MODE)
 
         model = Wav2Vec2ForSpeechClassification(config)
-        checkpoint = torch.load(ckpt_path, map_location="cpu")
+        model = model.half()
+        checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=True)
         state_dict = checkpoint["model"] if "model" in checkpoint else checkpoint
         model.load_state_dict(state_dict)
         model.eval()
@@ -80,7 +81,7 @@ def load_all_models():
     for region in REGIONS:
         try:
             load_model(region)
-        except RuntimeError as e:
+        except Exception as e:
             print(f"[warning] {e}")
 
 
@@ -122,7 +123,7 @@ def predict_one_region(waveform: torch.Tensor, region: str, k: int):
 
     with torch.no_grad():
         # NOTE: forward() returns a raw logits tensor, not a `.logits` attr.
-        logits = model(input_values=inputs["input_values"], attention_mask=None)
+        logits = model(input_values=inputs["input_values"].half(), attention_mask=None)
         probs = torch.softmax(logits, dim=-1).squeeze()
 
     k = min(k, probs.shape[-1])
@@ -165,7 +166,8 @@ async def predict(file: UploadFile = File(...), top_k: int = 3, region: Optional
  
     try:
         audio_bytes = await file.read()
-        waveform, sample_rate = torchaudio.load(io.BytesIO(audio_bytes))
+        audio_format = file.filename.rsplit(".", 1)[-1].lower()
+        waveform, sample_rate = torchaudio.load(io.BytesIO(audio_bytes), format=audio_format, backend="soundfile")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not decode audio: {e}")
  
