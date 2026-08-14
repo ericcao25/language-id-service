@@ -3,5 +3,8 @@ __pycache__/
 .git/
 .github/
 *.md
-models/
 *.wav
+*.mp3
+models/
+models_fp16/
+models_int8_arm64/

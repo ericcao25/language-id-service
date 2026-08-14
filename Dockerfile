@@ -11,9 +11,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY predict.py model_arch.py fleurs_config.py ./
 
-COPY compressed_models/ ./compressed_models/
+COPY models_int8_amd64/ ./models/
+ENV MODEL_ROOT=/app/models
 
-ENV MODEL_ROOT=/app/compressed_models
+ENV PORT=8000
 EXPOSE 8000
 
-CMD ["uvicorn", "predict:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD uvicorn predict:app --host 0.0.0.0 --port ${PORT}
