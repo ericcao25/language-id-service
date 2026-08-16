@@ -1,10 +1,13 @@
+import base64
 import io
 import os
+from contextlib import asynccontextmanager
 from typing import List, Optional
 
 import torch
 import torchaudio
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel
 from transformers import AutoConfig, AutoFeatureExtractor
 
@@ -19,10 +22,29 @@ REGIONS = list(FLEURS_GROUP_INFO.keys())
 POOLING_MODE_OVERRIDES = {}
 DEFAULT_POOLING_MODE = "mean"
 
+
+_supported = torch.backends.quantized.supported_engines
+_default_engine = next((e for e in ("onednn", "qnnpack") if e in _supported), "qnnpack")
+torch.backends.quantized.engine = os.environ.get("QUANT_ENGINE", _default_engine)
+
+mcp = FastMCP("language-id", stateless_http=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Same model loading that used to happen in the on_event("startup") hook,
+    # now paired with the MCP session manager's own lifespan so both the
+    # /predict route and the /mcp route are backed by one loaded registry.
+    load_all_models()
+    async with mcp.session_manager.run():
+        yield
+
+
 app = FastAPI(
     title="Spoken Language ID Service",
     description="Serves 7 FLEURS-region wav2vec2 models for spoken language identification.",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 _registry = {}
@@ -65,9 +87,10 @@ def load_model(region: str):
         config.pooling_mode = POOLING_MODE_OVERRIDES.get(region, DEFAULT_POOLING_MODE)
 
         model = Wav2Vec2ForSpeechClassification(config)
-        model = model.half()
+
         checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=True)
         state_dict = checkpoint["model"] if "model" in checkpoint else checkpoint
+        model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
         model.load_state_dict(state_dict)
         model.eval()
 
@@ -97,11 +120,6 @@ class PredictResponse(BaseModel):
     regions_considered: List[str]
 
 
-@app.on_event("startup")
-def startup_event():
-    load_all_models()
-
-
 @app.get("/health")
 def health():
     return {"status": "ok", "regions_loaded": sorted(_registry.keys())}
@@ -123,7 +141,7 @@ def predict_one_region(waveform: torch.Tensor, region: str, k: int):
 
     with torch.no_grad():
         # NOTE: forward() returns a raw logits tensor, not a `.logits` attr.
-        logits = model(input_values=inputs["input_values"].half(), attention_mask=None)
+        logits = model(input_values=inputs["input_values"], attention_mask=None)
         probs = torch.softmax(logits, dim=-1).squeeze()
 
     k = min(k, probs.shape[-1])
@@ -172,3 +190,45 @@ async def predict(file: UploadFile = File(...), top_k: int = 3, region: Optional
         raise HTTPException(status_code=400, detail=f"Could not decode audio: {e}")
  
     return predict_from_waveform(waveform, sample_rate, k=top_k, region=region)
+
+
+@mcp.tool()
+def predict_language(audio_base64: str, top_k: int = 3, region: Optional[str] = None, audio_format: Optional[str] = None) -> dict:
+    """
+    Predict the spoken language of an audio clip.
+
+    Args:
+        audio_base64: Base64-encoded audio file bytes (wav/flac/mp3/ogg).
+        top_k: Number of top language candidates to return (default 3).
+        region: Optional. Restrict to one FLEURS region's model
+                (one of: western_europe, eastern_europe,
+                central_asia_middle_east_north_africa, sub_saharan_africa,
+                south_asia, south_east_asia, cjk). Omit to run all loaded
+                region models and return the best match across regions.
+        audio_format: Optional container hint (e.g. "wav", "flac") passed to
+                the decoder. Unlike the /predict route, there's no filename
+                to infer this from -- omit it and soundfile will usually
+                sniff the format from the file header correctly; set it
+                explicitly if decoding fails on an ambiguous file.
+
+    Returns:
+        dict with top_prediction, top_k, and regions_considered -- same
+        shape as the /predict route's response body.
+    """
+    if region is not None and region not in REGIONS:
+        raise ValueError(f"Unknown region '{region}'. Valid: {REGIONS}")
+
+    audio_bytes = base64.b64decode(audio_base64)
+    waveform, sample_rate = torchaudio.load(
+        io.BytesIO(audio_bytes), format=audio_format, backend="soundfile"
+    )
+    return predict_from_waveform(waveform, sample_rate, k=top_k, region=region).model_dump()
+
+
+@mcp.tool()
+def list_supported_regions() -> dict:
+    """List the FLEURS regions this server can predict against, and which are currently loaded."""
+    return {"available": REGIONS, "loaded": sorted(_registry.keys())}
+
+
+app.mount("/", mcp.streamable_http_app())
