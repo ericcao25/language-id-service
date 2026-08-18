@@ -11,9 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY predict.py model_arch.py fleurs_config.py ./
 
-COPY models_int8_amd64/ ./models/
-ENV MODEL_ROOT=/app/models
-
 ENV PORT=8000
 EXPOSE 8000
 
