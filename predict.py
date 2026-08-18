@@ -6,6 +6,7 @@ from typing import List, Optional
 
 import torch
 import torchaudio
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel
@@ -86,7 +87,9 @@ def load_model(region: str):
         )
         config.pooling_mode = POOLING_MODE_OVERRIDES.get(region, DEFAULT_POOLING_MODE)
 
-        model = Wav2Vec2ForSpeechClassification(config)
+        with torch.device("meta"):
+            model = Wav2Vec2ForSpeechClassification(config)
+        model = model.to_empty(device="cpu")
 
         checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=True)
         state_dict = checkpoint["model"] if "model" in checkpoint else checkpoint
@@ -101,11 +104,14 @@ def load_model(region: str):
 
 
 def load_all_models():
-    for region in REGIONS:
-        try:
-            load_model(region)
-        except Exception as e:
-            print(f"[warning] {e}")
+    get_feature_extractor()
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {executor.submit(load_model, region): region for region in REGIONS}
+        for future in futures:
+            try:
+                future.result()
+            except Exception as e:
+                print(f"[warning] {futures[future]}: {e}")
 
 
 class LanguagePrediction(BaseModel):
