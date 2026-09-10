@@ -49,8 +49,8 @@ jobs:
           service: ${{ env.SERVICE }}
           region: ${{ env.REGION }}
           image: ${{ env.IMAGE }}:${{ github.sha }}
-          service_account: language-id-runtime@cool-ship-504707-u9.iam.gserviceaccount.com
           flags: >-
+            --service-account=language-id-runtime@cool-ship-504707-u9.iam.gserviceaccount.com
             --allow-unauthenticated --memory=16Gi --cpu=4 --min-instances=0 --cpu-boost
             --add-volume=name=models,type=cloud-storage,bucket=${{ env.BUCKET }}
             --add-volume-mount=volume=models,mount-path=/mnt/models
