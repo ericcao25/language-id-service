@@ -2,7 +2,5 @@ __pycache__/
 .DS_Store
 .git/
 .github/
-*.md
-*.wav
-*.mp3
+tests/
 models*/

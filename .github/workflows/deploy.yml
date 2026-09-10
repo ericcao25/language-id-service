@@ -1,0 +1,71 @@
+name: Build and Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+
+env:
+  PROJECT_ID: cool-ship-504707-u9
+  REGION: us-central1
+  SERVICE: language-id-service
+  IMAGE: us-central1-docker.pkg.dev/cool-ship-504707-u9/language-id-service/app
+  BUCKET: language-id-checkpoints
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build image
+        run: docker build -t ${{ env.IMAGE }}:${{ github.sha }} -t ${{ env.IMAGE }}:latest .
+
+      - name: Push image
+        run: |
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:latest
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE }}:${{ github.sha }}
+          service_account: language-id-runtime@cool-ship-504707-u9.iam.gserviceaccount.com
+          flags: >-
+            --allow-unauthenticated --memory=16Gi --cpu=4 --min-instances=0 --cpu-boost
+            --add-volume=name=models,type=cloud-storage,bucket=${{ env.BUCKET }}
+            --add-volume-mount=volume=models,mount-path=/mnt/models
+          env_vars: |
+            MODEL_ROOT=/mnt/models
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MCP test client dependencies
+        run: pip install mcp
+
+      - name: Smoke-test the MCP endpoint
+        run: |
+          echo "Testing MCP server at ${{ steps.deploy.outputs.url }}/mcp"
+          python tests/test_mcp_client.py "${{ steps.deploy.outputs.url }}/mcp" --audio tests/sample.wav
