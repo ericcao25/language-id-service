@@ -16,7 +16,7 @@ from fleurs_config import FLEURS_GROUP_INFO
 from model_arch import Wav2Vec2ForSpeechClassification
 
 MODEL_ROOT = os.environ.get("MODEL_ROOT", "./compressed_models")
-BASE_MODEL_NAME = "facebook/wav2vec2-xls-r-300m"
+BASE_MODEL_CONFIG_DIR = os.environ.get("BASE_MODEL_CONFIG_DIR", "/app/base_model_config")
 SAMPLE_RATE = 16000
 REGIONS = list(FLEURS_GROUP_INFO.keys())
 
@@ -55,7 +55,7 @@ _feature_extractor = None
 def get_feature_extractor():
     global _feature_extractor
     if _feature_extractor is None:
-        _feature_extractor = AutoFeatureExtractor.from_pretrained(BASE_MODEL_NAME)
+        _feature_extractor = AutoFeatureExtractor.from_pretrained(BASE_MODEL_CONFIG_DIR)
     return _feature_extractor
 
 
@@ -79,7 +79,7 @@ def load_model(region: str):
         label2id = {v: k for k, v in id2label.items()}
 
         config = AutoConfig.from_pretrained(
-            BASE_MODEL_NAME,
+            BASE_MODEL_CONFIG_DIR,
             num_labels=num_labels,
             label2id=label2id,
             id2label=id2label,
