@@ -63,7 +63,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install MCP test client dependencies
-        run: pip install mcp
+        run: pip install mcp==1.12.4
 
       - name: Smoke-test the MCP endpoint
         run: |
