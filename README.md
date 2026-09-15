@@ -48,6 +48,8 @@ flowchart LR
 
 ## API
 
+The service is deployed and live on Cloud Run, but I'm not posting the service URL here. Happy to share the actual URL on request, just ask.
+
 **REST**:
 ```bash
 curl -X POST https://<service-url>/predict -F "file=@sample.wav"
